@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "249617730457",
+    "project_id": "examnectar",
+    "storage_bucket": "examnectar.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:249617730457:android:b6d62b28ecb58cfc182108",
+        "android_client_info": {
+          "package_name": "com.example.exam_nector"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAKRbwyYnuyyT_zSMS6ghbkE_s4XQrUXe4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
