@@ -83,7 +83,7 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse("http://10.152.161.29:8000/summarize/youtube"),
+        Uri.parse("http://192.168.0.101:8000/summarize/youtube"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "youtube_url": widget.youtubeUrl,

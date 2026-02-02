@@ -1,11 +1,12 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'edit_profile.dart';
 import 'feedback.dart';
 import 'about.dart';
 import '../home_screen/home.dart';
-import '../../core/user_storage.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -16,42 +17,67 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   File? profileImage;
-  String name = "Sushant Kumar";
+  String name = "User";
   String bio = "Smart Learner";
+
+  int scanCount = 0;
+  int videoCount = 0;
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _loadLibraryCounts();
   }
 
-  // ================= LOAD DATA =================
+  // ================= LOAD PROFILE =================
   Future<void> _loadProfile() async {
-    final data = await UserStorage.loadProfile();
-
+    final prefs = await SharedPreferences.getInstance();
     setState(() {
-  name = data["name"] ?? name;
-  bio = data["bio"] ?? bio;
+      name = prefs.getString("name") ?? name;
+      bio = prefs.getString("bio") ?? bio;
+      final imagePath = prefs.getString("image");
+      profileImage =
+          (imagePath != null && imagePath.isNotEmpty) ? File(imagePath) : null;
+    });
+  }
 
-  final String? imagePath = data["image"] as String?;
+  // ================= LOAD LIBRARY COUNTS =================
+  Future<void> _loadLibraryCounts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString("library_items") ?? "[]";
+    final List items = jsonDecode(stored);
 
-  profileImage = (imagePath != null && imagePath.isNotEmpty)
-      ? File(imagePath)
-      : null;
-});
+    int scans = 0;
+    int videos = 0;
 
+    for (final item in items) {
+      if (item['type'] == 'scan') scans++;
+      if (item['type'] == 'youtube') videos++;
+    }
+
+    if (mounted) {
+      setState(() {
+        scanCount = scans;
+        videoCount = videos;
+      });
+    }
+  }
+
+  // Refresh counts dynamically
+  void refreshCounts() {
+    _loadLibraryCounts();
   }
 
   // ================= SIGN OUT =================
   Future<void> _handleSignOut() async {
-    await UserStorage.clear();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
 
-    Navigator.of(context)
-      ..pop()
-      ..pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-        (_) => false,
-      );
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      (route) => false,
+    );
   }
 
   @override
@@ -92,10 +118,9 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 16),
 
-            // ================= NAME =================
+            // ================= NAME & BIO =================
             Text(
               name,
               style: const TextStyle(
@@ -103,17 +128,11 @@ class _ProfilePageState extends State<ProfilePage> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-
-            // ❌ GREEN LINE REMOVED HERE ❌
-
             const SizedBox(height: 6),
-
             Text(
               bio,
               style: const TextStyle(color: Colors.grey),
-              textAlign: TextAlign.center,
             ),
-
             const SizedBox(height: 20),
 
             // ================= EDIT PROFILE =================
@@ -125,8 +144,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     builder: (_) => const UpdateProfilePage(),
                   ),
                 );
-
-                _loadProfile(); // reload after edit
+                _loadProfile();
+                refreshCounts();
               },
               style: OutlinedButton.styleFrom(
                 shape: const StadiumBorder(),
@@ -137,7 +156,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
             const SizedBox(height: 28),
 
-            // ================= STATS SECTION (ADDED) =================
+            // ================= STATS =================
             Container(
               padding: const EdgeInsets.symmetric(vertical: 18),
               decoration: BoxDecoration(
@@ -152,16 +171,16 @@ class _ProfilePageState extends State<ProfilePage> {
                 ],
               ),
               child: Row(
-                children: const [
+                children: [
                   Expanded(
                     child: _StatItem(
                       icon: Icons.description,
                       color: Colors.blue,
-                      count: "45",
+                      count: scanCount.toString(),
                       label: "Scan",
                     ),
                   ),
-                  SizedBox(
+                  const SizedBox(
                     height: 40,
                     child: VerticalDivider(thickness: 1),
                   ),
@@ -169,7 +188,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     child: _StatItem(
                       icon: Icons.play_circle_fill,
                       color: Colors.red,
-                      count: "18",
+                      count: videoCount.toString(),
                       label: "Video",
                     ),
                   ),
@@ -184,18 +203,22 @@ class _ProfilePageState extends State<ProfilePage> {
             _MenuTile(
               icon: Icons.rate_review,
               title: "Share feedback",
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const FeedbackScreen()),
-              ),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const FeedbackScreen()),
+                );
+              },
             ),
             _MenuTile(
               icon: Icons.info,
               title: "About Us",
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AboutUsPage()),
-              ),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AboutUsPage()),
+                );
+              },
             ),
 
             const SizedBox(height: 20),
@@ -208,8 +231,7 @@ class _ProfilePageState extends State<ProfilePage> {
               onTap: () {
                 showDialog(
                   context: context,
-                  builder: (_) =>
-                      SignOutDialog(onConfirm: _handleSignOut),
+                  builder: (_) => SignOutDialog(onConfirm: _handleSignOut),
                 );
               },
             ),
@@ -220,7 +242,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 }
 
-// ================= STATS ITEM =================
+// ================= STAT ITEM =================
 class _StatItem extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -246,16 +268,14 @@ class _StatItem extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           "$count $label",
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ],
     );
   }
 }
 
-// ================= SIGN OUT DIALOG (UNCHANGED) =================
+// ================= SIGN OUT DIALOG =================
 class SignOutDialog extends StatelessWidget {
   final VoidCallback onConfirm;
   const SignOutDialog({super.key, required this.onConfirm});
@@ -265,7 +285,7 @@ class SignOutDialog extends StatelessWidget {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -276,15 +296,16 @@ class SignOutDialog extends StatelessWidget {
                 color: Color(0xFFFFF3D6),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.logout,
-                  color: Color(0xFFF4B400), size: 30),
+              child: const Icon(Icons.logout, color: Color(0xFFF4B400), size: 30),
             ),
             const SizedBox(height: 20),
-            const Text("Sign Out",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text(
+              "Sign Out",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             const Text(
-              "You can always sign back in to access\nyour summaries and saved notes.",
+              "You can always sign back in to access your summaries and saved notes.",
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey),
             ),
@@ -299,8 +320,10 @@ class SignOutDialog extends StatelessWidget {
                       borderRadius: BorderRadius.circular(14)),
                 ),
                 onPressed: onConfirm,
-                child: const Text("Sign Out",
-                    style: TextStyle(fontWeight: FontWeight.w600)),
+                child: const Text(
+                  "Sign Out",
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
               ),
             ),
             TextButton(

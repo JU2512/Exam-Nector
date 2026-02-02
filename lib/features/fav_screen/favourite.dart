@@ -1,24 +1,38 @@
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'summary_result_page.dart';
 
 enum FavType { youtube, document }
 
 class FavouriteItem {
-  String title;
+  final String title;
   final String image;
   final FavType type;
   final bool isVideo;
-  final String? youtubeUrl;
+  final String summary;
 
   FavouriteItem({
     required this.title,
     required this.image,
     required this.type,
+    required this.summary,
     this.isVideo = false,
-    this.youtubeUrl,
   });
+
+  factory FavouriteItem.fromJson(Map<String, dynamic> json) {
+    return FavouriteItem(
+      title: json["title"] ?? "Summary",
+      image: json["thumbnail"] ??
+          "https://via.placeholder.com/300x200.png?text=Document",
+      type:
+          json["type"] == "youtube" ? FavType.youtube : FavType.document,
+      isVideo: json["type"] == "youtube",
+      summary: json["summary"] ?? "",
+    );
+  }
 }
 
 class FavouritesScreen extends StatefulWidget {
@@ -42,68 +56,110 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
     _loadFavourites();
   }
 
-  // ================= LOAD FAVOURITES =================
+  // ================= LOAD =================
   Future<void> _loadFavourites() async {
     final prefs = await SharedPreferences.getInstance();
-    final List stored =
-        jsonDecode(prefs.getString("favourite_items") ?? "[]");
-
-    final items = stored.map<FavouriteItem>((e) {
-      final isYoutube = e['type'] == 'youtube';
-
-      return FavouriteItem(
-        title: e['title'] ?? "Loading...",
-        image: e['thumbnail'] ??
-            "https://ui-avatars.com/api/?name=Doc",
-        type: isYoutube ? FavType.youtube : FavType.document,
-        isVideo: isYoutube,
-        youtubeUrl: e['youtubeUrl'],
-      );
-    }).toList();
-
-    setState(() => allItems = items);
-
-    for (final item in items) {
-      if (item.type == FavType.youtube && item.youtubeUrl != null) {
-        _fetchYoutubeTitle(item);
-      }
-    }
-  }
-
-  // ================= FETCH YOUTUBE TITLE =================
-  Future<void> _fetchYoutubeTitle(FavouriteItem item) async {
-    try {
-      final response = await http.get(
-        Uri.parse(
-          "https://www.youtube.com/oembed?url=${item.youtubeUrl}&format=json",
-        ),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() => item.title = data['title']);
-      }
-    } catch (_) {}
-  }
-
-  // ================= REMOVE FAVOURITE =================
-  Future<void> _removeFavourite(FavouriteItem item) async {
-    final prefs = await SharedPreferences.getInstance();
-    final List stored =
-        jsonDecode(prefs.getString("favourite_items") ?? "[]");
-
-    stored.removeWhere((e) =>
-        e['youtubeUrl'] == item.youtubeUrl &&
-        e['type'] == item.type.name);
-
-    await prefs.setString(
-        "favourite_items", jsonEncode(stored));
+    final raw = prefs.getString("favourite_items") ?? "[]";
+    final List decoded = jsonDecode(raw);
 
     setState(() {
-      allItems.remove(item);
+      allItems =
+          decoded.map((e) => FavouriteItem.fromJson(e)).toList();
     });
   }
 
+  // ================= CENTER POPUP =================
+  void _confirmRemove(FavouriteItem item) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) {
+        return Dialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          backgroundColor: bg,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: primary.withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.favorite_border,
+                      color: primary, size: 28),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Remove from favourites?",
+                  style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  "You can add it back anytime from the summary page.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 22),
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primary,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                    onPressed: () async {
+                      await _removeFavourite(item);
+                      Navigator.pop(context);
+                    },
+                    child: const Text(
+                      "Remove",
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: const Text(
+                    "Cancel",
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ================= REMOVE =================
+  Future<void> _removeFavourite(FavouriteItem item) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString("favourite_items") ?? "[]";
+    final List decoded = jsonDecode(raw);
+
+    decoded.removeWhere((e) =>
+        e["summary"] == item.summary &&
+        e["type"] ==
+            (item.type == FavType.youtube ? "youtube" : "scan"));
+
+    await prefs.setString("favourite_items", jsonEncode(decoded));
+    _loadFavourites();
+  }
+
+  // ================= FILTER =================
   List<FavouriteItem> get filteredItems {
     if (selectedTab == "YouTube") {
       return allItems.where((e) => e.type == FavType.youtube).toList();
@@ -114,6 +170,7 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
     return allItems;
   }
 
+  // ================= UI =================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -121,7 +178,7 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            _header(context),
+            _header(),
             _tabs(),
             Expanded(child: _grid()),
           ],
@@ -130,27 +187,32 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
     );
   }
 
-  // ================= HEADER =================
-  Widget _header(BuildContext context) {
+  Widget _header() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.pop(context),
-          ),
-          const SizedBox(width: 12),
+          const BackButton(),
+          const SizedBox(width: 8),
           const Text(
             "Favourites",
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
+          const Spacer(),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.close, size: 20),
+          )
         ],
       ),
     );
   }
 
-  // ================= TABS =================
   Widget _tabs() {
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -173,6 +235,7 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
 
   Widget _tab(String label) {
     final active = selectedTab == label;
+
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => selectedTab = label),
@@ -213,7 +276,7 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
           crossAxisCount: 2,
           mainAxisSpacing: 16,
           crossAxisSpacing: 16,
-          mainAxisExtent: 290,
+          childAspectRatio: 0.65, // ✅ Prevents overflow
         ),
         itemBuilder: (_, i) => _card(filteredItems[i]),
       ),
@@ -222,62 +285,97 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
 
   // ================= CARD =================
   Widget _card(FavouriteItem item) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AspectRatio(
-          aspectRatio: 1,
-          child: Stack(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: Image.network(item.image,
-                    fit: BoxFit.cover, width: double.infinity),
-              ),
-              if (item.isVideo)
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.9),
-                      shape: BoxShape.circle,
-                    ),
-                    child:
-                        const Icon(Icons.play_arrow, color: primary),
-                  ),
+    final bool isFile = item.image.startsWith("/");
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => SummaryResultPage(
+              item: {
+                "title": item.title,
+                "summary": item.summary,
+                "type": item.type == FavType.youtube
+                    ? "youtube"
+                    : "scan",
+              },
+            ),
+          ),
+        );
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: isFile && File(item.image).existsSync()
+                      ? Image.file(
+                          File(item.image),
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                        )
+                      : Image.network(
+                          item.image,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                        ),
                 ),
+                if (item.isVideo)
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.9),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.play_arrow,
+                          color: primary),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Title
+          Text(
+            item.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+
+          const SizedBox(height: 4),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                item.type == FavType.youtube
+                    ? "YOUTUBE"
+                    : "DOCUMENT",
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: primary,
+                ),
+              ),
+              GestureDetector(
+                onTap: () => _confirmRemove(item),
+                child:
+                    const Icon(Icons.favorite, color: primary),
+              ),
             ],
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          item.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 6),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              item.type == FavType.youtube ? "YOUTUBE" : "DOCUMENT",
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: primary,
-              ),
-            ),
-
-            // ❤️ REMOVE FROM FAVOURITE
-            GestureDetector(
-              onTap: () => _removeFavourite(item),
-              child: const Icon(Icons.favorite, color: primary),
-            ),
-          ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

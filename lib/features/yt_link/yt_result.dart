@@ -9,6 +9,9 @@ import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:exam_nector/core/app_notification.dart';
+import 'package:exam_nector/features/home_screen/notification.dart';
+
 
 import 'yt_summary.dart';
 
@@ -158,9 +161,37 @@ class _YtResultScreenState extends State<YtResultScreen> {
   }
 
   Future<void> _downloadPdf() async {
-    final file = await _createPdf();
-    await Printing.layoutPdf(onLayout: (_) => file.readAsBytes());
-  }
+  final pdf = pw.Document();
+  pdf.addPage(
+    pw.Page(
+      build: (_) => pw.Padding(
+        padding: const pw.EdgeInsets.all(24),
+        child: pw.Text(widget.summaryText),
+      ),
+    ),
+  );
+
+  final dir = await getApplicationDocumentsDirectory();
+  final file = File(
+    "${dir.path}/yt_${DateTime.now().millisecondsSinceEpoch}.pdf",
+  );
+
+  await file.writeAsBytes(await pdf.save());
+
+  // 🔔 ADD NOTIFICATION
+  await NotificationService.add(
+    AppNotification(
+      id: DateTime.now().toString(),
+      title: widget.youtubeUrl,
+      description: "YouTube summary PDF ready",
+      pdfPath: file.path,
+      createdAt: DateTime.now(),
+    ),
+  );
+
+  await Printing.layoutPdf(onLayout: (_) => file.readAsBytes());
+}
+
 
   // ================= SHARE =================
   void _showShareOptions() {

@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // 🔗 IMPORT TARGET SCREENS
 import '../scan_document/scan.dart';
@@ -35,6 +37,9 @@ class _HomeScreenState extends State<HomeScreen> {
   // 🔔 NOTIFICATION
   int unreadCount = 5;
 
+  // LAST ACTIVITY
+  List<Map<String, dynamic>> lastTwoActivities = [];
+
   final Color primary = const Color(0xFFF4B400);
   final Color primaryDark = const Color(0xFFE09F00);
   final Color primaryDeeper = const Color(0xFFD18C00);
@@ -43,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadUserFromStorage();
+    _loadLastActivities();
   }
 
   // ================= LOAD USER =================
@@ -57,6 +63,26 @@ class _HomeScreenState extends State<HomeScreen> {
         profileImage = null;
       }
     });
+  }
+
+  // ================= LOAD LAST 2 ACTIVITIES =================
+  Future<void> _loadLastActivities() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List stored = jsonDecode(prefs.getString("library_items") ?? "[]");
+
+    final List<Map<String, dynamic>> items =
+        stored.cast<Map<String, dynamic>>();
+
+    if (items.isNotEmpty) {
+      items.sort(
+        (a, b) => DateTime.parse(b['date'] ?? DateTime.now().toString())
+            .compareTo(DateTime.parse(a['date'] ?? DateTime.now().toString())),
+      );
+
+      setState(() {
+        lastTwoActivities = items.take(2).toList();
+      });
+    }
   }
 
   @override
@@ -110,7 +136,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const Spacer(),
 
-            // 🔔 NOTIFICATION
+            // 🔔 NOTIFICATION BADGE
             Stack(
               children: [
                 IconButton(
@@ -119,7 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     await Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const NotificationsScreen(),
+                        builder: (_) => const NotificationServiceScreen(),
                       ),
                     );
                     setState(() => unreadCount = 0);
@@ -188,9 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
               width: _currentPage == index ? 20 : 8,
               height: 8,
               decoration: BoxDecoration(
-                color: _currentPage == index
-                    ? primary
-                    : Colors.grey.shade300,
+                color: _currentPage == index ? primary : Colors.grey.shade300,
                 borderRadius: BorderRadius.circular(10),
               ),
             );
@@ -306,32 +330,51 @@ class _HomeScreenState extends State<HomeScreen> {
         const Text("Last Activity",
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 6),
-              ),
-            ],
+
+        if (lastTwoActivities.isEmpty)
+          const Text(
+            "No recent activities",
+            style: TextStyle(color: Colors.grey),
           ),
-          child: const Row(
-            children: [
-              Icon(Icons.history_edu, color: Colors.orange),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  "Physics – Motion Summary",
-                  style: TextStyle(fontWeight: FontWeight.w500),
+
+        ...lastTwoActivities.map((item) {
+          // ⭐ UPDATED: Shows both YouTube + Scan titles
+          final String displayTitle =
+              item['videoTitle'] ??
+              item['title'] ??
+              item['scanTitle'] ??
+              item['fileName'] ??
+              item['name'] ??
+              "";
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 6),
                 ),
-              ),
-            ],
-          ),
-        ),
+              ],
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.history_edu, color: Colors.orange),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    displayTitle,
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
       ],
     );
   }
@@ -406,7 +449,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ================= EXPANDABLE FAB (RESTORED) =================
+  // ================= EXPANDABLE FAB =================
   Widget _buildExpandableFab(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 40),

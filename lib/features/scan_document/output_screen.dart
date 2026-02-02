@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+
+import '../../core/app_notification.dart';
+import '../home_screen/notification.dart';
 
 class ScanSummaryOutputScreen extends StatefulWidget {
   final String summaryText;
@@ -26,7 +30,7 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
   final FlutterTts _tts = FlutterTts();
   bool isFavourite = false;
 
-  // 🎨 COLORS
+  // 🎨 COLORS (UNCHANGED)
   static const backgroundLight = Color(0xFFFFF9ED);
   static const backgroundDark = Color(0xFF23200F);
   static const charcoal = Color(0xFF1F2937);
@@ -38,16 +42,82 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
   void initState() {
     super.initState();
     _loadFavourite();
+    _saveToLibrary(); // 🔥 AUTO save scan summary
   }
 
-  // 🔊 LISTEN
+  // ================= SAVE TO LIBRARY =================
+  Future<void> _saveToLibrary() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List stored =
+        jsonDecode(prefs.getString("library_items") ?? "[]");
+
+    final exists = stored.any(
+      (e) =>
+          e["type"] == "scan" &&
+          e["summary"] == widget.summaryText,
+    );
+
+    if (exists) return;
+
+    stored.add({
+      "type": "scan",
+      "title": "Scanned Document",
+      "thumbnail": "scan",
+      "summary": widget.summaryText,
+      "createdAt": DateTime.now().toIso8601String(),
+    });
+
+    await prefs.setString("library_items", jsonEncode(stored));
+  }
+
+  // ================= FAVOURITE =================
+  Future<void> _toggleFavourite() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List favs =
+        jsonDecode(prefs.getString("favourite_items") ?? "[]");
+
+    if (isFavourite) {
+      favs.removeWhere(
+        (e) =>
+            e["type"] == "scan" &&
+            e["summary"] == widget.summaryText,
+      );
+    } else {
+      favs.add({
+        "type": "scan",
+        "title": "Scanned Document",
+        "thumbnail": "scan",
+        "summary": widget.summaryText,
+        "createdAt": DateTime.now().toIso8601String(),
+      });
+    }
+
+    await prefs.setString("favourite_items", jsonEncode(favs));
+    setState(() => isFavourite = !isFavourite);
+  }
+
+  Future<void> _loadFavourite() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List favs =
+        jsonDecode(prefs.getString("favourite_items") ?? "[]");
+
+    setState(() {
+      isFavourite = favs.any(
+        (e) =>
+            e["type"] == "scan" &&
+            e["summary"] == widget.summaryText,
+      );
+    });
+  }
+
+  // ================= LISTEN =================
   Future<void> _listen() async {
     await _tts.setLanguage("en-US");
     await _tts.setSpeechRate(0.45);
     await _tts.speak(widget.summaryText);
   }
 
-  // 📋 COPY
+  // ================= COPY =================
   Future<void> _copy() async {
     await Clipboard.setData(
       ClipboardData(text: widget.summaryText),
@@ -56,55 +126,41 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
         .showSnackBar(const SnackBar(content: Text("Summary copied")));
   }
 
-  // ❤️ FAVOURITE
-  Future<void> _toggleFavourite() async {
-    final prefs = await SharedPreferences.getInstance();
-    const key = "scan_summary_fav";
-
-    if (isFavourite) {
-      await prefs.remove(key);
-    } else {
-      await prefs.setString(key, widget.summaryText);
-    }
-
-    setState(() => isFavourite = !isFavourite);
-  }
-
-  Future<void> _loadFavourite() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() => isFavourite = prefs.containsKey("scan_summary_fav"));
-  }
-
-  // 📄 CREATE PDF
+  // ================= PDF =================
   Future<File> _createPdf() async {
     final pdf = pw.Document();
     pdf.addPage(
       pw.Page(
         build: (_) => pw.Padding(
           padding: const pw.EdgeInsets.all(24),
-          child: pw.Text(
-            widget.summaryText,
-            style: const pw.TextStyle(fontSize: 14),
-          ),
+          child: pw.Text(widget.summaryText),
         ),
       ),
     );
 
     final dir = await getTemporaryDirectory();
-    final file = File("${dir.path}/summary.pdf");
+    final file = File("${dir.path}/scan_summary.pdf");
     await file.writeAsBytes(await pdf.save());
     return file;
   }
 
-  // ⬇️ DOWNLOAD PDF
   Future<void> _downloadPdf() async {
     final file = await _createPdf();
-    await Printing.layoutPdf(
-      onLayout: (_) => file.readAsBytes(),
+
+    await NotificationService.add(
+      AppNotification(
+        id: DateTime.now().toString(),
+        title: "Scanned Document",
+        description: "Document summary PDF available",
+        pdfPath: file.path,
+        createdAt: DateTime.now(),
+      ),
     );
+
+    await Printing.layoutPdf(onLayout: (_) => file.readAsBytes());
   }
 
-  // 🔗 SHARE OPTIONS
+  // ================= SHARE =================
   void _shareOptions() {
     showModalBottomSheet(
       context: context,
@@ -136,7 +192,7 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
     );
   }
 
-  // ---------------- UI ----------------
+  // ================= UI (UNCHANGED) =================
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -149,7 +205,7 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
             _header(context, isDark),
             _statusBadge(),
             Expanded(child: _content(isDark)),
-            _bottomActions(isDark),
+            _bottomActions(),
           ],
         ),
       ),
@@ -195,8 +251,8 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
           Icon(Icons.check_circle, color: leafGreen),
           SizedBox(width: 6),
           Text("Document Scanned & Summarized",
-              style: TextStyle(
-                  color: leafGreen, fontWeight: FontWeight.w600)),
+              style:
+                  TextStyle(color: leafGreen, fontWeight: FontWeight.w600)),
         ],
       ),
     );
@@ -205,45 +261,25 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
   Widget _content(bool isDark) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF18181B) : Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              widget.summaryText,
-              style: TextStyle(
-                fontSize: 15,
-                height: 1.6,
-                color: isDark ? Colors.white : charcoal,
-              ),
-            ),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF18181B) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          widget.summaryText,
+          style: TextStyle(
+            fontSize: 15,
+            height: 1.6,
+            color: isDark ? Colors.white : charcoal,
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 56,
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _listen,
-              icon: const Icon(Icons.volume_up),
-              label: const Text("Listen to Summary"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: nectarGold,
-                foregroundColor: charcoal,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _bottomActions(bool isDark) {
+  Widget _bottomActions() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
       child: Row(
@@ -275,7 +311,7 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
             ),

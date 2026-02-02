@@ -1,150 +1,176 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:exam_nector/core/app_notification.dart';
 
-class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key});
+/// ================= SERVICE =================
+class NotificationService {
+  static const _key = "app_notifications";
 
-  @override
-  State<NotificationsScreen> createState() => _NotificationsScreenState();
+  static Future<List<AppNotification>> getAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_key);
+    if (raw == null) return [];
+
+    final List decoded = jsonDecode(raw);
+    return decoded.map((e) => AppNotification.fromJson(e)).toList();
+  }
+
+  static Future<void> add(AppNotification notification) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = await getAll();
+
+    existing.insert(0, notification);
+
+    await prefs.setString(
+      _key,
+      jsonEncode(existing.map((e) => e.toJson()).toList()),
+    );
+  }
+
+  static Future<void> markAllRead() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = await getAll();
+
+    for (var item in list) {
+      item.unread = false;
+    }
+
+    await prefs.setString(
+      _key,
+      jsonEncode(list.map((e) => e.toJson()).toList()),
+    );
+  }
 }
 
-class _NotificationsScreenState extends State<NotificationsScreen> {
-  static const bg = Color(0xFFFFF9ED);
-  static const primary = Color(0xFFF4B400);
-  static const charcoal = Color(0xFF1F2937);
-  static const warmGrey = Color(0xFF6B7280);
+/// ================= NOTIFICATION SCREEN =================
+class NotificationServiceScreen extends StatefulWidget {
+  const NotificationServiceScreen({super.key});
 
-  List<bool> unread = [true, true, false, false, false];
+  @override
+  State<NotificationServiceScreen> createState() =>
+      _NotificationServiceScreenState();
+}
 
-  void _markAllRead() {
-    setState(() {
-      unread = unread.map((_) => false).toList();
-    });
+class _NotificationServiceScreenState
+    extends State<NotificationServiceScreen> {
+  List<AppNotification> notifications = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotifications();
   }
+
+  Future<void> _loadNotifications() async {
+    notifications = await NotificationService.getAll();
+    setState(() {});
+  }
+
+  Future<void> _openPdf(AppNotification n) async {
+    final file = File(n.pdfPath);
+
+    if (!file.existsSync()) return;
+
+    await OpenFilex.open(file.path);
+
+    if (n.unread) {
+      setState(() => n.unread = false);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        "app_notifications",
+        jsonEncode(notifications.map((e) => e.toJson()).toList()),
+      );
+    }
+  }
+
+  void _markAllRead() async {
+    await NotificationService.markAllRead();
+    _loadNotifications();
+  }
+
+  /// HELPER: Time formatting
+  String _timeAgo(DateTime date) {
+    final diff = DateTime.now().difference(date);
+
+    if (diff.inMinutes < 60) return "${diff.inMinutes}m ago";
+    if (diff.inHours < 24) return "${diff.inHours}h ago";
+    if (diff.inDays == 1) return "Yesterday";
+    return "${diff.inDays} days ago";
+  }
+
+  IconData _iconFor(AppNotification n) {
+    if (n.description.toLowerCase().contains("youtube")) {
+      return Icons.play_arrow;
+    }
+    return Icons.picture_as_pdf;
+  }
+
+  List<AppNotification> get recent => notifications
+      .where((n) => DateTime.now().difference(n.createdAt).inHours < 24)
+      .toList();
+
+  List<AppNotification> get earlier => notifications
+      .where((n) => DateTime.now().difference(n.createdAt).inHours >= 24)
+      .toList();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _header(context),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  _sectionHeader("Recent", showAction: true),
-                  _notificationCard(
-                    index: 0,
-                    icon: Icons.play_circle,
-                    title: "AI Ethics Summary Ready",
-                    time: "2m ago",
-                    description:
-                        "Your summary for 'The Future of AI' is now available for review.",
-                  ),
-                  _notificationCard(
-                    index: 1,
-                    icon: Icons.document_scanner,
-                    title: "Textbook Chapter 4",
-                    time: "15m ago",
-                    description:
-                        "OCR processing complete. View your key takeaways from the scan.",
-                  ),
-                  const SizedBox(height: 24),
-                  _sectionHeader("Earlier"),
-                  _notificationCard(
-                    index: 2,
-                    icon: Icons.article,
-                    title: "Quantum Physics Intro",
-                    time: "2h ago",
-                    description:
-                        "Detailed notes generated from your saved link are ready in your library.",
-                  ),
-                  _notificationCard(
-                    index: 3,
-                    icon: Icons.language,
-                    title: "History of Rome",
-                    time: "Yesterday",
-                    description:
-                        "Summary archived to your 'History' collection successfully.",
-                  ),
-                  _notificationCard(
-                    index: 4,
-                    icon: Icons.mic,
-                    title: "Podcast: Tech 2024",
-                    time: "2 days ago",
-                    description:
-                        "Audio transcription and insights are now complete.",
-                  ),
-                  const SizedBox(height: 80),
-                ],
-              ),
-            ),
-          ],
+      backgroundColor: const Color(0xFFFFF9ED),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFFFF9ED),
+        elevation: 0,
+        leading: const BackButton(color: Color(0xFF1F2937)),
+        title: const Text(
+          "Notifications",
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.close, color: Color(0xFF1F2937)),
+            onPressed: () => Navigator.pop(context),
+          )
+        ],
       ),
-    );
-  }
-
-  // ---------------- HEADER ----------------
-  Widget _header(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: bg,
-        border: Border(
-          bottom: BorderSide(color: primary.withOpacity(0.15)),
-        ),
-      ),
-      child: Row(
+      body: ListView(
+        padding: const EdgeInsets.all(16),
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: charcoal),
-            onPressed: () => Navigator.pop(context),
-          ),
-          const Expanded(
-            child: Text(
-              "Notifications",
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: charcoal,
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.close, color: charcoal),
-            onPressed: () => Navigator.pop(context),
-          ),
+          _sectionHeader("RECENT", action: _markAllRead),
+          ...recent.map(_notificationCard),
+          const SizedBox(height: 24),
+          _sectionHeader("EARLIER"),
+          ...earlier.map(_notificationCard),
         ],
       ),
     );
   }
 
-  // ---------------- SECTION HEADER ----------------
-  Widget _sectionHeader(String title, {bool showAction = false}) {
+  Widget _sectionHeader(String title, {VoidCallback? action}) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+      padding: const EdgeInsets.fromLTRB(4, 8, 4, 12),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            title.toUpperCase(),
-            style: TextStyle(
+            title,
+            style: const TextStyle(
               fontSize: 12,
-              letterSpacing: 1.4,
+              letterSpacing: 1.2,
               fontWeight: FontWeight.bold,
-              color: charcoal.withOpacity(0.7),
+              color: Color(0xFF6B7280),
             ),
           ),
-          if (showAction)
+          if (action != null)
             GestureDetector(
-              onTap: _markAllRead,
+              onTap: action,
               child: const Text(
                 "Mark all as read",
                 style: TextStyle(
-                  color: primary,
+                  color: Color(0xFFF4B400),
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -154,94 +180,88 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  // ---------------- NOTIFICATION CARD ----------------
-  Widget _notificationCard({
-    required int index,
-    required IconData icon,
-    required String title,
-    required String time,
-    required String description,
-  }) {
-    final bool isUnread = unread[index];
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: primary.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(10),
+  Widget _notificationCard(AppNotification n) {
+    return GestureDetector(
+      onTap: () => _openPdf(n),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF4B400).withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(_iconFor(n), color: const Color(0xFFF4B400)),
             ),
-            child: Icon(icon, color: primary, size: 28),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          color: charcoal,
+            const SizedBox(width: 14),
+
+            /// 🔥 NOW SHOWING ORIGINAL VIDEO TITLE
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          n.title,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      time,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: warmGrey,
+                      Text(
+                        _timeAgo(n.createdAt),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF6B7280),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  description,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: warmGrey,
-                    height: 1.4,
+                    ],
                   ),
-                ),
+
+                  const SizedBox(height: 6),
+
+                  Text(
+                    n.description,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(width: 8),
+
+            Column(
+              children: [
+                if (n.unread)
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF4B400),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                const Icon(Icons.chevron_right,
+                    color: Color(0xFF9CA3AF)),
               ],
             ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (isUnread)
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: primary,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              const SizedBox(height: 8),
-              const Icon(Icons.chevron_right,
-                  color: Color(0xFF9CA3AF)),
-            ],
-          )
-        ],
+          ],
+        ),
       ),
     );
   }

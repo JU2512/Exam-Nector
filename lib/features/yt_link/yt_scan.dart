@@ -13,6 +13,16 @@ class _YtScanScreenState extends State<YtScanScreen> {
   final TextEditingController _controller = TextEditingController();
   bool _loading = false;
 
+  @override
+  void initState() {
+    super.initState();
+
+    /// 🔥 FIX 1: Rebuild UI when user pastes/edits link
+    _controller.addListener(() {
+      setState(() {});
+    });
+  }
+
   void _onSummarize() async {
     if (_controller.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -29,7 +39,7 @@ class _YtScanScreenState extends State<YtScanScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => YtSummaryScreen(
-          youtubeUrl: _controller.text.trim(), // ✅ ONLY required param
+          youtubeUrl: _controller.text.trim(),
         ),
       ),
     );
@@ -50,11 +60,17 @@ class _YtScanScreenState extends State<YtScanScreen> {
 
                 /// HEADER
                 Row(
-                  children: const [
-                    Icon(Icons.arrow_back_ios_new,
-                        color: Color(0xFF1F2937)),
-                    Spacer(),
-                    Text(
+                  children: [
+                    /// 🔥 FIX 2: Back button now works
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: const Icon(
+                        Icons.arrow_back_ios_new,
+                        color: Color(0xFF1F2937),
+                      ),
+                    ),
+                    const Spacer(),
+                    const Text(
                       "YouTube Summary",
                       style: TextStyle(
                         fontSize: 22,
@@ -62,7 +78,7 @@ class _YtScanScreenState extends State<YtScanScreen> {
                         color: Color(0xFF1F2937),
                       ),
                     ),
-                    Spacer(flex: 2),
+                    const Spacer(flex: 2),
                   ],
                 ),
 
@@ -166,7 +182,10 @@ class _YtScanScreenState extends State<YtScanScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _loading ? null : _onSummarize,
+                    /// 🔥 Button activates only when pasted link is NOT empty
+                    onPressed: (_controller.text.trim().isEmpty || _loading)
+                        ? null
+                        : _onSummarize,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFF4B400),
                       padding: const EdgeInsets.symmetric(vertical: 18),
