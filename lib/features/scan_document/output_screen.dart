@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -14,11 +15,18 @@ import '../../core/app_notification.dart';
 import '../home_screen/notification.dart';
 
 class ScanSummaryOutputScreen extends StatefulWidget {
-  final String summaryText;
+  /// 🔥 STREAM from backend (document summary stream)
+  final Stream<List<int>> stream;
+
+  /// ✅ REQUIRED FOR TITLE + THUMBNAIL
+  final String filePath;
+  final String fileName;
 
   const ScanSummaryOutputScreen({
     super.key,
-    required this.summaryText,
+    required this.stream,
+    required this.filePath,
+    required this.fileName,
   });
 
   @override
@@ -28,7 +36,12 @@ class ScanSummaryOutputScreen extends StatefulWidget {
 
 class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
   final FlutterTts _tts = FlutterTts();
+
+  String summaryText = "";
   bool isFavourite = false;
+  bool completed = false;
+
+  StreamSubscription<List<int>>? _subscription;
 
   // 🎨 COLORS (UNCHANGED)
   static const backgroundLight = Color(0xFFFFF9ED);
@@ -38,11 +51,62 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
   static const nectarGold = Color(0xFFF4B400);
   static const honeyAmber = Color(0xFFE09F00);
 
+  // ================= HELPERS =================
+
+  /// 📌 Clean title from filename
+  String get _cleanTitle {
+    return widget.fileName
+        .replaceAll(RegExp(r'\.[^.]+$'), '')
+        .replaceAll('_', ' ')
+        .replaceAll('-', ' ')
+        .trim();
+  }
+
+  /// 📌 Detect image scan
+  bool get _isImage {
+    final name = widget.fileName.toLowerCase();
+    return name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.png');
+  }
+
+  /// 📌 Source label for UI
+  String get _sourceLabel => _isImage ? "Image Scan" : "PDF Scan";
+
   @override
   void initState() {
     super.initState();
-    _loadFavourite();
-    _saveToLibrary(); // 🔥 AUTO save scan summary
+    _startListeningToStream();
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    _tts.stop();
+    super.dispose();
+  }
+
+  // ================= STREAM HANDLING =================
+  void _startListeningToStream() {
+    _subscription = widget.stream.listen(
+      (chunk) {
+        final text = utf8.decode(chunk);
+        setState(() {
+          summaryText += text;
+        });
+      },
+      onDone: () async {
+        completed = true;
+        await _saveToLibrary();
+        await _loadFavourite();
+        setState(() {});
+      },
+      onError: (_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Error receiving summary")),
+        );
+      },
+    );
   }
 
   // ================= SAVE TO LIBRARY =================
@@ -52,18 +116,17 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
         jsonDecode(prefs.getString("library_items") ?? "[]");
 
     final exists = stored.any(
-      (e) =>
-          e["type"] == "scan" &&
-          e["summary"] == widget.summaryText,
+      (e) => e["type"] == "scan" && e["summary"] == summaryText,
     );
 
     if (exists) return;
 
     stored.add({
       "type": "scan",
-      "title": "Scanned Document",
-      "thumbnail": "scan",
-      "summary": widget.summaryText,
+      "title": _cleanTitle,                 // ✅ FIXED
+      "thumbnail": widget.filePath,         // ✅ FIXED (local file)
+      "source": _sourceLabel,               // ✅ FIXED
+      "summary": summaryText,
       "createdAt": DateTime.now().toIso8601String(),
     });
 
@@ -78,16 +141,15 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
 
     if (isFavourite) {
       favs.removeWhere(
-        (e) =>
-            e["type"] == "scan" &&
-            e["summary"] == widget.summaryText,
+        (e) => e["type"] == "scan" && e["summary"] == summaryText,
       );
     } else {
       favs.add({
         "type": "scan",
-        "title": "Scanned Document",
-        "thumbnail": "scan",
-        "summary": widget.summaryText,
+        "title": _cleanTitle,               // ✅ FIXED
+        "thumbnail": widget.filePath,       // ✅ FIXED
+        "source": _sourceLabel,             // ✅ FIXED
+        "summary": summaryText,
         "createdAt": DateTime.now().toIso8601String(),
       });
     }
@@ -101,29 +163,26 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
     final List favs =
         jsonDecode(prefs.getString("favourite_items") ?? "[]");
 
-    setState(() {
-      isFavourite = favs.any(
-        (e) =>
-            e["type"] == "scan" &&
-            e["summary"] == widget.summaryText,
-      );
-    });
+    isFavourite = favs.any(
+      (e) => e["type"] == "scan" && e["summary"] == summaryText,
+    );
   }
 
   // ================= LISTEN =================
   Future<void> _listen() async {
+    if (summaryText.isEmpty) return;
     await _tts.setLanguage("en-US");
     await _tts.setSpeechRate(0.45);
-    await _tts.speak(widget.summaryText);
+    await _tts.speak(summaryText.replaceAll("\n", ". "));
   }
 
   // ================= COPY =================
   Future<void> _copy() async {
-    await Clipboard.setData(
-      ClipboardData(text: widget.summaryText),
+    if (summaryText.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: summaryText));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Summary copied")),
     );
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text("Summary copied")));
   }
 
   // ================= PDF =================
@@ -133,7 +192,7 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
       pw.Page(
         build: (_) => pw.Padding(
           padding: const pw.EdgeInsets.all(24),
-          child: pw.Text(widget.summaryText),
+          child: pw.Text(summaryText),
         ),
       ),
     );
@@ -145,12 +204,14 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
   }
 
   Future<void> _downloadPdf() async {
+    if (!completed) return;
+
     final file = await _createPdf();
 
     await NotificationService.add(
       AppNotification(
         id: DateTime.now().toString(),
-        title: "Scanned Document",
+        title: _cleanTitle,                 // ✅ FIXED
         description: "Document summary PDF available",
         pdfPath: file.path,
         createdAt: DateTime.now(),
@@ -162,6 +223,8 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
 
   // ================= SHARE =================
   void _shareOptions() {
+    if (!completed) return;
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -175,7 +238,7 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
             title: const Text("Share Text"),
             onTap: () {
               Navigator.pop(context);
-              Share.share(widget.summaryText);
+              Share.share(summaryText);
             },
           ),
           ListTile(
@@ -226,9 +289,10 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
           Text(
             "Summary Output",
             style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : charcoal),
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : charcoal,
+            ),
           ),
           const Spacer(),
           const SizedBox(width: 24),
@@ -245,14 +309,24 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
         color: leafGreen.withOpacity(0.12),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: const Row(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.check_circle, color: leafGreen),
-          SizedBox(width: 6),
-          Text("Document Scanned & Summarized",
-              style:
-                  TextStyle(color: leafGreen, fontWeight: FontWeight.w600)),
+          completed
+              ? const Icon(Icons.check_circle, color: leafGreen)
+              : const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+          const SizedBox(width: 6),
+          Text(
+            completed
+                ? "Document Scanned & Summarized"
+                : "Generating summary…",
+            style: const TextStyle(
+                color: leafGreen, fontWeight: FontWeight.w600),
+          ),
         ],
       ),
     );
@@ -268,7 +342,7 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
           borderRadius: BorderRadius.circular(12),
         ),
         child: Text(
-          widget.summaryText,
+          summaryText.isEmpty ? "Generating…" : summaryText,
           style: TextStyle(
             fontSize: 15,
             height: 1.6,
@@ -319,11 +393,14 @@ class _ScanSummaryOutputScreenState extends State<ScanSummaryOutputScreen> {
                 color: active ? Colors.red : honeyAmber),
           ),
           const SizedBox(height: 6),
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: honeyAmber)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: honeyAmber,
+            ),
+          ),
         ],
       ),
     );

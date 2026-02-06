@@ -21,7 +21,6 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
   SummaryDepth selected = SummaryDepth.easy;
   String? videoTitle;
   bool loadingTitle = true;
-  bool generating = false;
 
   @override
   void initState() {
@@ -29,25 +28,18 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
     _fetchVideoTitle();
   }
 
-  /// 🔹 Extract YouTube Video ID
   String get videoId {
     final uri = Uri.tryParse(widget.youtubeUrl);
     if (uri == null) return "";
-
     if (uri.host.contains("youtu.be")) {
       return uri.pathSegments.isNotEmpty ? uri.pathSegments.first : "";
     }
-
     return uri.queryParameters['v'] ?? "";
   }
 
-  /// 🔹 Thumbnail URL (NEW – logic only)
-  String get thumbnailUrl {
-    if (videoId.isEmpty) return "";
-    return "https://img.youtube.com/vi/$videoId/maxresdefault.jpg";
-  }
+  String get thumbnailUrl =>
+      videoId.isEmpty ? "" : "https://img.youtube.com/vi/$videoId/maxresdefault.jpg";
 
-  /// 🔹 Fetch video title (NO API KEY)
   Future<void> _fetchVideoTitle() async {
     try {
       final response = await http.get(
@@ -77,55 +69,6 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
     });
   }
 
-  /// 🔥 BACKEND CALL (UNCHANGED)
-  Future<void> _generateSummary() async {
-    setState(() => generating = true);
-
-    try {
-      final response = await http.post(
-        Uri.parse("http://192.168.0.101:8000/summarize/youtube"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "youtube_url": widget.youtubeUrl,
-          "depth": selected.name,
-        }),
-      );
-
-      setState(() => generating = false);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final rawSummary = data["summary"];
-
-        final String summaryText = rawSummary is List
-            ? rawSummary.join("\n\n")
-            : rawSummary.toString();
-
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => YtResultScreen(
-              depth: selected,
-              youtubeUrl: widget.youtubeUrl,
-              summaryText: summaryText,
-            ),
-          ),
-        );
-      } else {
-        _showError("Failed to generate summary");
-      }
-    } catch (e) {
-      setState(() => generating = false);
-      _showError("Network error");
-    }
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -148,7 +91,6 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  /// 🎬 THUMBNAIL (UNCHANGED UI)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(28),
                     child: Image.network(
@@ -161,7 +103,6 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
 
                   const SizedBox(height: 24),
 
-                  /// 🎯 TITLE
                   loadingTitle
                       ? const LinearProgressIndicator(
                           color: Color(0xFFF4B400),
@@ -183,24 +124,31 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
 
                   const SizedBox(height: 16),
 
-                  _option(SummaryDepth.easy, "Easy",
-                      "Short & Simple • 2 min read"),
-                  _option(SummaryDepth.medium, "Medium",
-                      "Technical & Balanced • 5 min read"),
-                  _option(SummaryDepth.long, "Long",
-                      "Detailed Notes • 10 min read"),
+                  _option(SummaryDepth.easy, "Easy", "Short & Simple • 2 min read"),
+                  _option(SummaryDepth.medium, "Medium", "Balanced • 5 min read"),
+                  _option(SummaryDepth.long, "Long", "Detailed Notes • 10 min read"),
                 ],
               ),
             ),
           ),
 
-          /// 🔘 GENERATE BUTTON
           Padding(
             padding: const EdgeInsets.all(20),
             child: SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: generating ? null : _generateSummary,
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => YtResultScreen(
+                        depth: selected,
+                        youtubeUrl: widget.youtubeUrl,
+                        videoTitle: videoTitle ?? "YouTube Video", // ✅ PASS TITLE
+                      ),
+                    ),
+                  );
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFF4B400),
                   padding: const EdgeInsets.symmetric(vertical: 18),
@@ -208,13 +156,10 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
                     borderRadius: BorderRadius.circular(28),
                   ),
                 ),
-                child: generating
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text(
-                        "Generate Summary",
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
+                child: const Text(
+                  "Generate Summary",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ),
@@ -223,11 +168,7 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
     );
   }
 
-  Widget _option(
-    SummaryDepth depth,
-    String title,
-    String subtitle,
-  ) {
+  Widget _option(SummaryDepth depth, String title, String subtitle) {
     final isSelected = selected == depth;
 
     return GestureDetector(
@@ -239,9 +180,7 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(26),
           border: Border.all(
-            color: isSelected
-                ? const Color(0xFFF4B400)
-                : const Color(0xFFE5E7EB),
+            color: isSelected ? const Color(0xFFF4B400) : const Color(0xFFE5E7EB),
             width: 2,
           ),
         ),
@@ -251,17 +190,12 @@ class _YtSummaryScreenState extends State<YtSummaryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style:
-                        const TextStyle(color: Color(0xFF6B7280)),
-                  ),
+                  Text(subtitle,
+                      style: const TextStyle(color: Color(0xFF6B7280))),
                 ],
               ),
             ),

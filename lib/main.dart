@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 //import 'features/home_screen/home.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'features/auth/login.dart';
+import 'features/Onboarding_cards.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,7 +24,7 @@ class ExamNectarApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const LoginPage(),
+      home: const OnboardingScreen(),
     );
   }
 }

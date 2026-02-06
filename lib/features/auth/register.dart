@@ -66,7 +66,7 @@ class _RegisterPageState extends State<RegisterPage> {
               Text(
                 "Create your Account",
                 style: GoogleFonts.plusJakartaSans(
-                  fontSize: 32,
+                  fontSize: 28,
                   fontWeight: FontWeight.w800,
                 ),
               ),

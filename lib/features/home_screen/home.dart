@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,9 +14,6 @@ import 'package:exam_nector/features/library_screen/library.dart';
 import '../fav_screen/favourite.dart';
 import '../profile_screen/profile.dart';
 
-// 🔑 STORAGE
-import '../../core/user_storage.dart';
-
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -23,7 +21,12 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+// ✅ ROUTE OBSERVER (ADD THIS)
+final RouteObserver<ModalRoute<void>> routeObserver =
+    RouteObserver<ModalRoute<void>>();
+
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver, RouteAware {
   final PageController _pageController = PageController();
 
   int _currentPage = 0;
@@ -44,21 +47,62 @@ class _HomeScreenState extends State<HomeScreen> {
   final Color primaryDark = const Color(0xFFE09F00);
   final Color primaryDeeper = const Color(0xFFD18C00);
 
+  // ================= INIT =================
   @override
   void initState() {
     super.initState();
+
+    WidgetsBinding.instance.addObserver(this);
+
     _loadUserFromStorage();
     _loadLastActivities();
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    routeObserver.unsubscribe(this);
+
+    super.dispose();
+  }
+
+  // ================= ROUTE LISTENER =================
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    routeObserver.subscribe(
+      this,
+      ModalRoute.of(context)! as PageRoute,
+    );
+  }
+
+  // When coming back from Profile
+  @override
+  void didPopNext() {
+    _loadUserFromStorage();
+  }
+
+  // When app resumes
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadUserFromStorage();
+    }
+  }
+
   // ================= LOAD USER =================
   Future<void> _loadUserFromStorage() async {
-    final data = await UserStorage.loadProfile();
+    final prefs = await SharedPreferences.getInstance();
+
+    final name = prefs.getString("name");
+    final img = prefs.getString("image");
 
     setState(() {
-      userName = data["name"] ?? "Guest";
-      if (data["image"] != null && data["image"]!.isNotEmpty) {
-        profileImage = File(data["image"]!);
+      userName = name ?? "Guest";
+
+      if (img != null && img.isNotEmpty) {
+        profileImage = File(img);
       } else {
         profileImage = null;
       }
@@ -68,15 +112,21 @@ class _HomeScreenState extends State<HomeScreen> {
   // ================= LOAD LAST 2 ACTIVITIES =================
   Future<void> _loadLastActivities() async {
     final prefs = await SharedPreferences.getInstance();
-    final List stored = jsonDecode(prefs.getString("library_items") ?? "[]");
+
+    final List stored =
+        jsonDecode(prefs.getString("library_items") ?? "[]");
 
     final List<Map<String, dynamic>> items =
         stored.cast<Map<String, dynamic>>();
 
     if (items.isNotEmpty) {
       items.sort(
-        (a, b) => DateTime.parse(b['date'] ?? DateTime.now().toString())
-            .compareTo(DateTime.parse(a['date'] ?? DateTime.now().toString())),
+        (a, b) => DateTime.parse(
+                b['date'] ?? DateTime.now().toString())
+            .compareTo(
+          DateTime.parse(
+              a['date'] ?? DateTime.now().toString()),
+        ),
       );
 
       setState(() {
@@ -85,6 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // ================= BUILD =================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -103,7 +154,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       floatingActionButton: _buildExpandableFab(context),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      floatingActionButtonLocation:
+          FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: _buildBottomNav(),
     );
   }
@@ -136,7 +188,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const Spacer(),
 
-            // 🔔 NOTIFICATION BADGE
             Stack(
               children: [
                 IconButton(
@@ -145,12 +196,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     await Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const NotificationServiceScreen(),
+                        builder: (_) =>
+                            const NotificationServiceScreen(),
                       ),
                     );
+
                     setState(() => unreadCount = 0);
                   },
                 ),
+
                 if (unreadCount > 0)
                   Positioned(
                     right: 6,
@@ -162,7 +216,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         shape: BoxShape.circle,
                       ),
                       child: Text(
-                        unreadCount > 9 ? '9+' : '$unreadCount',
+                        unreadCount > 9
+                            ? '9+'
+                            : '$unreadCount',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 10,
@@ -179,7 +235,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ================= HERO SLIDER =================
+  // ================= HERO =================
   Widget _buildHeroSlider() {
     return Column(
       children: [
@@ -204,18 +260,25 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+
         const SizedBox(height: 12),
+
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(2, (index) {
             return AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              margin: const EdgeInsets.symmetric(horizontal: 4),
+              duration:
+                  const Duration(milliseconds: 300),
+              margin:
+                  const EdgeInsets.symmetric(horizontal: 4),
               width: _currentPage == index ? 20 : 8,
               height: 8,
               decoration: BoxDecoration(
-                color: _currentPage == index ? primary : Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(10),
+                color: _currentPage == index
+                    ? primary
+                    : Colors.grey.shade300,
+                borderRadius:
+                    BorderRadius.circular(10),
               ),
             );
           }),
@@ -224,7 +287,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _heroCard(String title, String subtitle, IconData icon) {
+  Widget _heroCard(
+      String title, String subtitle, IconData icon) {
     return Container(
       margin: const EdgeInsets.only(right: 12),
       padding: const EdgeInsets.all(20),
@@ -245,9 +309,12 @@ class _HomeScreenState extends State<HomeScreen> {
               color: Colors.white.withOpacity(0.15),
             ),
           ),
+
           Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            mainAxisAlignment:
+                MainAxisAlignment.center,
             children: [
               Text(
                 title,
@@ -257,9 +324,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
+
               const SizedBox(height: 8),
-              Text(subtitle,
-                  style: const TextStyle(color: Colors.white70)),
+
+              Text(
+                subtitle,
+                style: const TextStyle(
+                    color: Colors.white70),
+              ),
             ],
           ),
         ],
@@ -267,17 +339,22 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ================= QUICK ACTIONS =================
+  // ================= QUICK ACTION =================
   Widget _buildQuickActions(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text("Quick Actions",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold)),
+
         const SizedBox(height: 16),
+
         GridView(
           shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
+          physics:
+              const NeverScrollableScrollPhysics(),
           gridDelegate:
               const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
@@ -288,7 +365,8 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             _QuickActionCard(
               title: "Scan Doc\nSummary",
-              description: "Turn pages into\nconcise notes.",
+              description:
+                  "Turn pages into\nconcise notes.",
               buttonText: "Scan Document",
               icon: Icons.document_scanner,
               accentColor: Colors.blue,
@@ -296,14 +374,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const ScanScreen(),
+                    builder: (_) =>
+                        const ScanScreen(),
                   ),
                 );
               },
             ),
+
             _QuickActionCard(
               title: "Video\nSummary",
-              description: "Summarize YouTube\nvideos fast.",
+              description:
+                  "Summarize YouTube\nvideos fast.",
               buttonText: "Paste Link",
               icon: Icons.play_circle_fill,
               accentColor: Colors.red,
@@ -311,7 +392,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const YtScanScreen(),
+                    builder: (_) =>
+                        const YtScanScreen(),
                   ),
                 );
               },
@@ -328,7 +410,10 @@ class _HomeScreenState extends State<HomeScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text("Last Activity",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold)),
+
         const SizedBox(height: 12),
 
         if (lastTwoActivities.isEmpty)
@@ -338,24 +423,26 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
 
         ...lastTwoActivities.map((item) {
-          // ⭐ UPDATED: Shows both YouTube + Scan titles
           final String displayTitle =
               item['videoTitle'] ??
-              item['title'] ??
-              item['scanTitle'] ??
-              item['fileName'] ??
-              item['name'] ??
-              "";
+                  item['title'] ??
+                  item['scanTitle'] ??
+                  item['fileName'] ??
+                  item['name'] ??
+                  "";
 
           return Container(
-            margin: const EdgeInsets.only(bottom: 12),
+            margin:
+                const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius:
+                  BorderRadius.circular(18),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
+                  color: Colors.black
+                      .withOpacity(0.04),
                   blurRadius: 10,
                   offset: const Offset(0, 6),
                 ),
@@ -363,12 +450,17 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.history_edu, color: Colors.orange),
+                const Icon(Icons.history_edu,
+                    color: Colors.orange),
+
                 const SizedBox(width: 10),
+
                 Expanded(
                   child: Text(
                     displayTitle,
-                    style: const TextStyle(fontWeight: FontWeight.w500),
+                    style: const TextStyle(
+                        fontWeight:
+                            FontWeight.w500),
                   ),
                 ),
               ],
@@ -385,27 +477,34 @@ class _HomeScreenState extends State<HomeScreen> {
       notchMargin: 6,
       shape: const AutomaticNotchedShape(
         RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          borderRadius:
+              BorderRadius.vertical(
+                  top: Radius.circular(22)),
         ),
       ),
       child: SizedBox(
         height: 64,
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisAlignment:
+              MainAxisAlignment.spaceBetween,
           children: [
             _navItem(Icons.home, "Home", 0),
-            _navItem(Icons.library_books, "Library", 1),
+            _navItem(
+                Icons.library_books, "Library", 1),
             const SizedBox(width: 40),
             _navItem(Icons.star_border, "Saved", 2),
-            _navItem(Icons.person_outline, "Profile", 3),
+            _navItem(
+                Icons.person_outline, "Profile", 3),
           ],
         ),
       ),
     );
   }
 
-  Widget _navItem(IconData icon, String label, int index) {
-    final bool selected = _currentIndex == index;
+  Widget _navItem(
+      IconData icon, String label, int index) {
+    final bool selected =
+        _currentIndex == index;
 
     return InkWell(
       onTap: () async {
@@ -414,33 +513,49 @@ class _HomeScreenState extends State<HomeScreen> {
         if (index == 1) {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const LibraryApp()),
+            MaterialPageRoute(
+                builder: (_) => const LibraryApp()),
           );
-        } else if (index == 2) {
+        }
+
+        if (index == 2) {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const FavouritesScreen()),
+            MaterialPageRoute(
+                builder: (_) =>
+                    const FavouritesScreen()),
           );
-        } else if (index == 3) {
+        }
+
+        if (index == 3) {
           await Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const ProfilePage()),
+            MaterialPageRoute(
+                builder: (_) =>
+                    const ProfilePage()),
           );
-          await _loadUserFromStorage();
+
+          _loadUserFromStorage();
         }
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 14),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: selected ? primary : Colors.grey),
+            Icon(icon,
+                color:
+                    selected ? primary : Colors.grey),
+
             const SizedBox(height: 4),
+
             Text(
               label,
               style: TextStyle(
                 fontSize: 11,
-                color: selected ? primary : Colors.grey,
+                color:
+                    selected ? primary : Colors.grey,
               ),
             ),
           ],
@@ -449,7 +564,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ================= EXPANDABLE FAB =================
+  // ================= FAB =================
   Widget _buildExpandableFab(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 40),
@@ -460,43 +575,59 @@ class _HomeScreenState extends State<HomeScreen> {
           alignment: Alignment.bottomCenter,
           children: [
             AnimatedPositioned(
-              duration: const Duration(milliseconds: 250),
+              duration:
+                  const Duration(milliseconds: 250),
               bottom: _isFabOpen ? 78 : 0,
               child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 200),
+                duration:
+                    const Duration(milliseconds: 200),
                 opacity: _isFabOpen ? 1 : 0,
                 child: Container(
                   width: 56,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  padding:
+                      const EdgeInsets.symmetric(
+                          vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color.fromARGB(255, 67, 65, 60),
-                    borderRadius: BorderRadius.circular(40),
+                    color: const Color.fromARGB(
+                        255, 67, 65, 60),
+                    borderRadius:
+                        BorderRadius.circular(40),
                   ),
                   child: Column(
                     children: [
                       _fabOption(
-                        icon: Icons.document_scanner,
+                        icon:
+                            Icons.document_scanner,
                         color: Colors.blue,
                         onTap: () {
-                          setState(() => _isFabOpen = false);
+                          setState(() =>
+                              _isFabOpen = false);
+
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const ScanScreen(),
+                              builder: (_) =>
+                                  const ScanScreen(),
                             ),
                           );
                         },
                       ),
+
                       const SizedBox(height: 14),
+
                       _fabOption(
-                        icon: Icons.play_circle_fill,
+                        icon:
+                            Icons.play_circle_fill,
                         color: Colors.red,
                         onTap: () {
-                          setState(() => _isFabOpen = false);
+                          setState(() =>
+                              _isFabOpen = false);
+
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const YtScanScreen(),
+                              builder: (_) =>
+                                  const YtScanScreen(),
                             ),
                           );
                         },
@@ -506,14 +637,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+
             FloatingActionButton(
               backgroundColor: primary,
               onPressed: () {
-                setState(() => _isFabOpen = !_isFabOpen);
+                setState(() =>
+                    _isFabOpen = !_isFabOpen);
               },
               child: AnimatedRotation(
                 turns: _isFabOpen ? 0.125 : 0,
-                duration: const Duration(milliseconds: 250),
+                duration:
+                    const Duration(milliseconds: 250),
                 child: const Icon(Icons.add),
               ),
             ),
@@ -543,7 +677,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ================= QUICK ACTION CARD =================
+// ================= QUICK CARD =================
 class _QuickActionCard extends StatelessWidget {
   final String title;
   final String description;
@@ -567,47 +701,67 @@ class _QuickActionCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(24),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        padding:
+            const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 18),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color:
+                  Colors.black.withOpacity(0.04),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
           ],
         ),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisAlignment:
+              MainAxisAlignment.spaceBetween,
           children: [
-            Text(title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold),
+            ),
+
             CircleAvatar(
               radius: 30,
-              backgroundColor: accentColor.withOpacity(0.12),
-              child: Icon(icon, color: accentColor, size: 32),
+              backgroundColor:
+                  accentColor.withOpacity(0.12),
+              child: Icon(icon,
+                  color: accentColor, size: 32),
             ),
-            Text(description,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey.shade600)),
+
+            Text(
+              description,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade600,
+              ),
+            ),
+
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 10),
+              padding:
+                  const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
                 color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(24),
+                borderRadius:
+                    BorderRadius.circular(24),
               ),
-              child: Text(buttonText,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: accentColor,
-                      fontWeight: FontWeight.w600)),
+              child: Text(
+                buttonText,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: accentColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ],
         ),

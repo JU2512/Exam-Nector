@@ -9,22 +9,22 @@ import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:http/http.dart' as http;
+
 import 'package:exam_nector/core/app_notification.dart';
 import 'package:exam_nector/features/home_screen/notification.dart';
-
-
 import 'yt_summary.dart';
 
 class YtResultScreen extends StatefulWidget {
   final SummaryDepth depth;
   final String youtubeUrl;
-  final String summaryText;
+  final String videoTitle; // ✅ ADDED
 
   const YtResultScreen({
     super.key,
     required this.depth,
     required this.youtubeUrl,
-    required this.summaryText,
+    required this.videoTitle, // ✅ ADDED
   });
 
   @override
@@ -33,13 +33,16 @@ class YtResultScreen extends StatefulWidget {
 
 class _YtResultScreenState extends State<YtResultScreen> {
   final FlutterTts _tts = FlutterTts();
+
+  String summaryText = "";
+  bool generating = true;
   bool isFavourite = false;
 
   @override
   void initState() {
     super.initState();
     _loadFavourite();
-    _saveToLibrary(); // 🔥 auto save (library has ALL summaries)
+    _startStreaming(); // 🔥 STREAM STARTS HERE
   }
 
   // ================= VIDEO ID =================
@@ -54,6 +57,47 @@ class _YtResultScreenState extends State<YtResultScreen> {
 
   String get thumbnail =>
       "https://img.youtube.com/vi/$videoId/maxresdefault.jpg";
+
+  // ================= STREAM SUMMARY =================
+  Future<void> _startStreaming() async {
+    try {
+      final request = http.Request(
+        'POST',
+        Uri.parse("http://192.168.0.103:8000/summarize/youtube/stream"),
+      );
+
+      request.headers['Content-Type'] = 'application/json';
+      request.body = jsonEncode({
+        "youtube_url": widget.youtubeUrl,
+        "depth": widget.depth.name,
+      });
+
+      final response = await request.send();
+
+      response.stream.transform(utf8.decoder).listen(
+        (chunk) {
+          setState(() {
+            summaryText += chunk;
+          });
+        },
+        onDone: () async {
+          setState(() => generating = false);
+          await _saveToLibrary(); // ✅ save AFTER full summary
+        },
+        onError: (_) {
+          setState(() {
+            summaryText += "\n\nError generating summary.";
+            generating = false;
+          });
+        },
+      );
+    } catch (_) {
+      setState(() {
+        summaryText = "Failed to generate summary.";
+        generating = false;
+      });
+    }
+  }
 
   // ================= LIBRARY SAVE =================
   Future<void> _saveToLibrary() async {
@@ -71,11 +115,11 @@ class _YtResultScreenState extends State<YtResultScreen> {
 
     items.add({
       "type": "youtube",
-      "title": "YouTube Summary",
+      "title": widget.videoTitle, // ✅ FIXED
       "thumbnail": thumbnail,
       "url": widget.youtubeUrl,
       "depth": widget.depth.name,
-      "summary": widget.summaryText,
+      "summary": summaryText,
       "createdAt": DateTime.now().toIso8601String(),
     });
 
@@ -97,11 +141,11 @@ class _YtResultScreenState extends State<YtResultScreen> {
     } else {
       favs.add({
         "type": "youtube",
-        "title": "YouTube Summary",
+        "title": widget.videoTitle, // ✅ FIXED
         "thumbnail": thumbnail,
         "url": widget.youtubeUrl,
         "depth": widget.depth.name,
-        "summary": widget.summaryText,
+        "summary": summaryText,
         "createdAt": DateTime.now().toIso8601String(),
       });
     }
@@ -128,14 +172,12 @@ class _YtResultScreenState extends State<YtResultScreen> {
   Future<void> _listen() async {
     await _tts.setLanguage("en-US");
     await _tts.setSpeechRate(0.45);
-    await _tts.speak(widget.summaryText.replaceAll("\n", ". "));
+    await _tts.speak(summaryText.replaceAll("\n", ". "));
   }
 
   // ================= COPY =================
   Future<void> _copy() async {
-    await Clipboard.setData(
-      ClipboardData(text: widget.summaryText),
-    );
+    await Clipboard.setData(ClipboardData(text: summaryText));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text("Summary copied")),
     );
@@ -149,7 +191,7 @@ class _YtResultScreenState extends State<YtResultScreen> {
       pw.Page(
         build: (_) => pw.Padding(
           padding: const pw.EdgeInsets.all(24),
-          child: pw.Text(widget.summaryText),
+          child: pw.Text(summaryText),
         ),
       ),
     );
@@ -161,37 +203,34 @@ class _YtResultScreenState extends State<YtResultScreen> {
   }
 
   Future<void> _downloadPdf() async {
-  final pdf = pw.Document();
-  pdf.addPage(
-    pw.Page(
-      build: (_) => pw.Padding(
-        padding: const pw.EdgeInsets.all(24),
-        child: pw.Text(widget.summaryText),
+    final pdf = pw.Document();
+    pdf.addPage(
+      pw.Page(
+        build: (_) => pw.Padding(
+          padding: const pw.EdgeInsets.all(24),
+          child: pw.Text(summaryText),
+        ),
       ),
-    ),
-  );
+    );
 
-  final dir = await getApplicationDocumentsDirectory();
-  final file = File(
-    "${dir.path}/yt_${DateTime.now().millisecondsSinceEpoch}.pdf",
-  );
+    final dir = await getApplicationDocumentsDirectory();
+    final file =
+        File("${dir.path}/yt_${DateTime.now().millisecondsSinceEpoch}.pdf");
 
-  await file.writeAsBytes(await pdf.save());
+    await file.writeAsBytes(await pdf.save());
 
-  // 🔔 ADD NOTIFICATION
-  await NotificationService.add(
-    AppNotification(
-      id: DateTime.now().toString(),
-      title: widget.youtubeUrl,
-      description: "YouTube summary PDF ready",
-      pdfPath: file.path,
-      createdAt: DateTime.now(),
-    ),
-  );
+    await NotificationService.add(
+      AppNotification(
+        id: DateTime.now().toString(),
+        title: widget.videoTitle, // ✅ NICE BONUS FIX
+        description: "YouTube summary PDF ready",
+        pdfPath: file.path,
+        createdAt: DateTime.now(),
+      ),
+    );
 
-  await Printing.layoutPdf(onLayout: (_) => file.readAsBytes());
-}
-
+    await Printing.layoutPdf(onLayout: (_) => file.readAsBytes());
+  }
 
   // ================= SHARE =================
   void _showShareOptions() {
@@ -208,7 +247,7 @@ class _YtResultScreenState extends State<YtResultScreen> {
             title: const Text("Share Text"),
             onTap: () {
               Navigator.pop(context);
-              Share.share(widget.summaryText);
+              Share.share(summaryText);
             },
           ),
           ListTile(
@@ -227,7 +266,7 @@ class _YtResultScreenState extends State<YtResultScreen> {
 
   // ================= SUMMARY UI =================
   List<Widget> _buildSummaryLines() {
-    return widget.summaryText
+    return summaryText
         .split("\n")
         .where((l) => l.trim().isNotEmpty)
         .map(
@@ -264,8 +303,6 @@ class _YtResultScreenState extends State<YtResultScreen> {
               child: Column(
                 children: [
                   const SizedBox(height: 20),
-
-                  // SUMMARY CARD
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Container(
@@ -276,14 +313,21 @@ class _YtResultScreenState extends State<YtResultScreen> {
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: _buildSummaryLines(),
+                        children: [
+                          if (generating)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 12),
+                              child: Text(
+                                "Generating summary...",
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            ),
+                          ..._buildSummaryLines(),
+                        ],
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 20),
-
-                  // 🔊 LISTEN TO SUMMARY (RESTORED)
                   OutlinedButton.icon(
                     onPressed: _listen,
                     icon: const Icon(Icons.volume_up),
@@ -291,20 +335,12 @@ class _YtResultScreenState extends State<YtResultScreen> {
                       "Listen to Summary",
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    style: OutlinedButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
                   ),
-
                   const SizedBox(height: 40),
                 ],
               ),
             ),
           ),
-
-          // ACTION BAR
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             child: Row(

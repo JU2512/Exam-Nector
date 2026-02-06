@@ -23,13 +23,15 @@ class FavouriteItem {
   });
 
   factory FavouriteItem.fromJson(Map<String, dynamic> json) {
+    final rawType = json["type"];
+
     return FavouriteItem(
       title: json["title"] ?? "Summary",
-      image: json["thumbnail"] ??
-          "https://via.placeholder.com/300x200.png?text=Document",
-      type:
-          json["type"] == "youtube" ? FavType.youtube : FavType.document,
-      isVideo: json["type"] == "youtube",
+      image: json["thumbnail"] ?? "",
+      type: rawType == "youtube"
+          ? FavType.youtube
+          : FavType.document, // handles "scan"
+      isVideo: rawType == "youtube",
       summary: json["summary"] ?? "",
     );
   }
@@ -68,82 +70,6 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
     });
   }
 
-  // ================= CENTER POPUP =================
-  void _confirmRemove(FavouriteItem item) {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) {
-        return Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          backgroundColor: bg,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: primary.withOpacity(0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.favorite_border,
-                      color: primary, size: 28),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  "Remove from favourites?",
-                  style:
-                      TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  "You can add it back anytime from the summary page.",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 22),
-                SizedBox(
-                  width: double.infinity,
-                  height: 46,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primary,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14)),
-                    ),
-                    onPressed: () async {
-                      await _removeFavourite(item);
-                      Navigator.pop(context);
-                    },
-                    child: const Text(
-                      "Remove",
-                      style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: const Text(
-                    "Cancel",
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   // ================= REMOVE =================
   Future<void> _removeFavourite(FavouriteItem item) async {
     final prefs = await SharedPreferences.getInstance();
@@ -168,6 +94,27 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
       return allItems.where((e) => e.type == FavType.document).toList();
     }
     return allItems;
+  }
+
+  // ================= HELPERS =================
+  bool _isImageFile(String path) {
+    final p = path.toLowerCase();
+    return p.endsWith(".jpg") ||
+        p.endsWith(".jpeg") ||
+        p.endsWith(".png");
+  }
+
+  Widget _docPlaceholder() {
+    return Container(
+      color: Colors.grey.shade200,
+      child: const Center(
+        child: Icon(
+          Icons.description,
+          size: 42,
+          color: Colors.grey,
+        ),
+      ),
+    );
   }
 
   // ================= UI =================
@@ -199,15 +146,6 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
           const Spacer(),
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.close, size: 20),
-          )
         ],
       ),
     );
@@ -276,7 +214,7 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
           crossAxisCount: 2,
           mainAxisSpacing: 16,
           crossAxisSpacing: 16,
-          childAspectRatio: 0.65, // ✅ Prevents overflow
+          childAspectRatio: 0.65,
         ),
         itemBuilder: (_, i) => _card(filteredItems[i]),
       ),
@@ -285,7 +223,32 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
 
   // ================= CARD =================
   Widget _card(FavouriteItem item) {
-    final bool isFile = item.image.startsWith("/");
+    final img = item.image;
+
+    Widget imageWidget;
+
+    if (img.startsWith("http")) {
+      // 🌐 YouTube thumbnail
+      imageWidget = Image.network(
+        img,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (_, __, ___) => _docPlaceholder(),
+      );
+    } else if (_isImageFile(img) && File(img).existsSync()) {
+      // 🖼 Image scan
+      imageWidget = Image.file(
+        File(img),
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (_, __, ___) => _docPlaceholder(),
+      );
+    } else {
+      // 📄 PDF or invalid file
+      imageWidget = _docPlaceholder();
+    }
 
     return GestureDetector(
       onTap: () {
@@ -312,19 +275,7 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(22),
-                  child: isFile && File(item.image).existsSync()
-                      ? Image.file(
-                          File(item.image),
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity,
-                        )
-                      : Image.network(
-                          item.image,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity,
-                        ),
+                  child: imageWidget,
                 ),
                 if (item.isVideo)
                   Center(
@@ -343,17 +294,13 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
             ),
           ),
           const SizedBox(height: 8),
-
-          // Title
           Text(
             item.title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
-
           const SizedBox(height: 4),
-
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -373,6 +320,32 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
                     const Icon(Icons.favorite, color: primary),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ================= CONFIRM =================
+  void _confirmRemove(FavouriteItem item) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Remove from favourites?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () async {
+              await _removeFavourite(item);
+              Navigator.pop(context);
+            },
+            child: const Text(
+              "Remove",
+              style: TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),

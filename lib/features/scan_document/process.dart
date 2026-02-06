@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -28,16 +27,21 @@ class _ProcessScreenState extends State<ProcessScreen> {
   final Color background = const Color(0xFFFFF9ED);
   final Color card = Colors.white;
 
+  // ================= GENERATE SUMMARY (STREAMING) =================
   Future<void> _generateSummary() async {
     setState(() => loading = true);
 
     try {
-      final uri =
-          Uri.parse("http://192.168.0.101:8000/summarize/document");
+      final uri = Uri.parse(
+        "http://192.168.0.103:8000/summarize/document/stream",
+      );
 
       final request = http.MultipartRequest("POST", uri);
 
+      // depth field
       request.fields["depth"] = selectedType;
+
+      // file upload
       request.files.add(
         await http.MultipartFile.fromPath(
           "file",
@@ -46,21 +50,21 @@ class _ProcessScreenState extends State<ProcessScreen> {
         ),
       );
 
+      // 🔥 SEND REQUEST (STREAM STARTS HERE)
       final streamedResponse = await request.send();
-      final response =
-          await http.Response.fromStream(streamedResponse);
 
       setState(() => loading = false);
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
+      if (streamedResponse.statusCode == 200) {
+        // 🔥 NAVIGATE IMMEDIATELY WITH STREAM
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => ScanSummaryOutputScreen(
-              summaryText: data["summary"],
-            ),
+  stream: streamedResponse.stream,
+  filePath: widget.file.path,
+  fileName: widget.fileName,
+),
           ),
         );
       } else {
@@ -78,6 +82,7 @@ class _ProcessScreenState extends State<ProcessScreen> {
     );
   }
 
+  // ================= UI (UNCHANGED) =================
   @override
   Widget build(BuildContext context) {
     return Scaffold(

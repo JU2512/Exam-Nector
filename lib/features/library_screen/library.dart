@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
@@ -31,58 +33,39 @@ class _LibraryAppState extends State<LibraryApp> {
     libraryItems = decoded.cast<Map<String, dynamic>>();
     setState(() {});
 
-    // Fetch missing YouTube titles and thumbnails safely
+    // Fetch YouTube meta if missing
     for (final item in libraryItems) {
-      if (item['type'] == 'youtube') {
-        if ((item['title'] ?? "").toString().isEmpty) {
-          _fetchYoutubeTitle(item);
-        }
-        if ((item['thumbnail'] ?? "").toString().isEmpty &&
-            item['url'] != null) {
-          final videoId = _extractYoutubeId(item['url']);
-          if (videoId != null) {
-            item['thumbnail'] =
-                "https://img.youtube.com/vi/$videoId/hqdefault.jpg";
-          }
-        }
+      if (item['type'] == 'youtube' &&
+          ((item['title'] ?? "").toString().isEmpty ||
+              (item['thumbnail'] ?? "").toString().isEmpty)) {
+        _fetchYoutubeMeta(item);
       }
     }
-
-    final prefs2 = await SharedPreferences.getInstance();
-    await prefs2.setString("library_items", jsonEncode(libraryItems));
   }
 
-  // ================= FETCH YOUTUBE TITLE =================
-  Future<void> _fetchYoutubeTitle(Map<String, dynamic> item) async {
+  // ================= FETCH YOUTUBE META =================
+  Future<void> _fetchYoutubeMeta(Map<String, dynamic> item) async {
     try {
-      final response = await http.get(
+      final res = await http.get(
         Uri.parse(
           "https://www.youtube.com/oembed?url=${item['url']}&format=json",
         ),
       );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
         item['title'] = data['title'];
+        item['thumbnail'] = data['thumbnail_url'];
+
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString("library_items", jsonEncode(libraryItems));
+
         if (mounted) setState(() {});
       }
     } catch (_) {}
   }
 
-  // ================= EXTRACT YOUTUBE ID =================
-  String? _extractYoutubeId(String url) {
-    final uri = Uri.tryParse(url);
-    if (uri == null) return null;
-    if (uri.host.contains("youtu.be")) {
-      return uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null;
-    } else if (uri.host.contains("youtube.com")) {
-      return uri.queryParameters["v"];
-    }
-    return null;
-  }
-
-  // ================= DELETE ITEM =================
+  // ================= DELETE =================
   Future<void> _deleteItem(Map<String, dynamic> item) async {
     libraryItems.remove(item);
     final prefs = await SharedPreferences.getInstance();
@@ -90,7 +73,7 @@ class _LibraryAppState extends State<LibraryApp> {
     setState(() {});
   }
 
-  // ================= FILTERED ITEMS =================
+  // ================= FILTER =================
   List<Map<String, dynamic>> get filteredItems {
     return libraryItems.where((item) {
       final matchesTab =
@@ -141,8 +124,8 @@ class _LibraryAppState extends State<LibraryApp> {
                 child: Center(
                   child: Text(
                     "Library",
-                    style: TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold),
+                    style:
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
@@ -150,6 +133,8 @@ class _LibraryAppState extends State<LibraryApp> {
             ],
           ),
           const SizedBox(height: 20),
+
+          // Search
           TextField(
             controller: searchController,
             onChanged: (_) => setState(() {}),
@@ -166,6 +151,8 @@ class _LibraryAppState extends State<LibraryApp> {
             ),
           ),
           const SizedBox(height: 16),
+
+          // Tabs
           Row(
             children: [
               _tabButton("All", 0),
@@ -188,27 +175,29 @@ class _LibraryAppState extends State<LibraryApp> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFF4B400) : Colors.white,
+            color: isSelected
+                ? const Color(0xFFF4B400)
+                : Colors.white,
             borderRadius: BorderRadius.circular(30),
             border: Border.all(color: Colors.grey.shade200),
           ),
           child: Center(
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
+            child: Text(label,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
           ),
         ),
       ),
     );
   }
 
-  // ================= LIST VIEW =================
+  // ================= LIST =================
   Widget _buildList() {
     if (filteredItems.isEmpty) {
       return const Center(
-        child: Text("No summaries found",
-            style: TextStyle(color: Colors.grey)),
+        child: Text(
+          "No summaries found",
+          style: TextStyle(color: Colors.grey),
+        ),
       );
     }
 
@@ -231,12 +220,16 @@ class _LibraryAppState extends State<LibraryApp> {
                     const Text("Remove this summary from library?"),
                 actions: [
                   TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text("Cancel")),
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text("Cancel"),
+                  ),
                   TextButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text("Delete",
-                          style: TextStyle(color: Colors.red))),
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text(
+                      "Delete",
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  ),
                 ],
               ),
             );
@@ -263,6 +256,16 @@ class _LibraryAppState extends State<LibraryApp> {
   // ================= CARD =================
   Widget _libraryCard(Map<String, dynamic> item) {
     final bool isYoutube = item['type'] == 'youtube';
+    final String thumbnail = item['thumbnail'] ?? "";
+
+    ImageProvider? imageProvider;
+    if (thumbnail.isNotEmpty) {
+      if (thumbnail.startsWith('http')) {
+        imageProvider = NetworkImage(thumbnail);
+      } else if (File(thumbnail).existsSync()) {
+        imageProvider = FileImage(File(thumbnail));
+      }
+    }
 
     return GestureDetector(
       onTap: () {
@@ -285,31 +288,29 @@ class _LibraryAppState extends State<LibraryApp> {
         ),
         child: Row(
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: SizedBox(
-                width: 72,
-                height: 72,
-                child: item['thumbnail'] != null
-                    ? Image.network(
-                        item['thumbnail'],
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                image: imageProvider != null
+                    ? DecorationImage(
+                        image: imageProvider,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            Container(color: Colors.grey.shade200),
                       )
-                    : Container(
-                        color: isYoutube
-                            ? Colors.black
-                            : Colors.grey.shade200,
-                        child: Icon(
-                          isYoutube
-                              ? Icons.play_arrow
-                              : Icons.description,
-                          color: isYoutube ? Colors.white : Colors.grey,
-                          size: 32,
-                        ),
-                      ),
+                    : null,
+                color: isYoutube ? Colors.black : Colors.grey.shade200,
               ),
+              child: imageProvider == null
+                  ? Icon(
+                      isYoutube
+                          ? Icons.play_arrow
+                          : Icons.description,
+                      color:
+                          isYoutube ? Colors.white : Colors.grey,
+                      size: 32,
+                    )
+                  : null,
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -325,22 +326,27 @@ class _LibraryAppState extends State<LibraryApp> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    "Source: ${isYoutube ? "YouTube" : "PDF Scan"}",
+                    "Source: ${item['source'] ?? (isYoutube ? "YouTube" : "PDF Scan")}",
                     style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade600),
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: Color(0xFFF4B400)),
+            const Icon(Icons.chevron_right,
+                color: Color(0xFFF4B400)),
           ],
         ),
       ),
     );
   }
 
-  Widget _roundIconButton(
-      {required IconData icon, VoidCallback? onTap}) {
+  Widget _roundIconButton({
+    required IconData icon,
+    VoidCallback? onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
