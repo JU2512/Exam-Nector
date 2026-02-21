@@ -33,7 +33,7 @@ class _ProcessScreenState extends State<ProcessScreen> {
 
     try {
       final uri = Uri.parse(
-        "http://192.168.0.103:8000/summarize/document/stream",
+        "http://10.128.114.29:8000/summarize/document/stream",
       );
 
       final request = http.MultipartRequest("POST", uri);

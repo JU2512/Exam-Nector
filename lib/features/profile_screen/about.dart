@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class AboutUsPage extends StatelessWidget {
   const AboutUsPage({super.key});
@@ -39,7 +40,7 @@ class AboutUsPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
 
-            /// LOGO
+            /// LOGO (SVG REPLACED – NOTHING ELSE CHANGED)
             Container(
               width: 120,
               height: 120,
@@ -55,11 +56,15 @@ class AboutUsPage extends StatelessWidget {
                     shape: BoxShape.circle,
                     color: isDark ? Colors.grey[850] : Colors.white,
                   ),
-                  child: const Icon(
-                    Icons.notes,
-                    size: 48,
-                    color: Colors.amber,
-                  ),
+                  child: ClipOval(
+  child: SvgPicture.asset(
+    'assets/logo/logo.svg',
+    fit: BoxFit.cover,
+    allowDrawingOutsideViewBox: true,
+  ),
+),
+
+
                 ),
               ),
             ),
@@ -99,7 +104,6 @@ class AboutUsPage extends StatelessWidget {
 
             const SizedBox(height: 32),
 
-            /// MISSION
             _infoCard(
               icon: Icons.rocket_launch,
               title: 'Our Mission',
@@ -109,7 +113,6 @@ class AboutUsPage extends StatelessWidget {
 
             const SizedBox(height: 32),
 
-            /// FEATURES
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
@@ -138,7 +141,6 @@ class AboutUsPage extends StatelessWidget {
 
             const SizedBox(height: 32),
 
-            /// STORY
             ClipRRect(
               borderRadius: BorderRadius.circular(20),
               child: Image.network(
@@ -173,7 +175,6 @@ class AboutUsPage extends StatelessWidget {
 
             const SizedBox(height: 32),
 
-            /// CONTACT
             Divider(color: Colors.grey.shade300),
 
             const SizedBox(height: 16),

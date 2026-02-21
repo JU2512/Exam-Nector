@@ -63,7 +63,7 @@ class _YtResultScreenState extends State<YtResultScreen> {
     try {
       final request = http.Request(
         'POST',
-        Uri.parse("http://192.168.0.103:8000/summarize/youtube/stream"),
+        Uri.parse("http://10.128.114.29:8000/summarize/youtube/stream"),
       );
 
       request.headers['Content-Type'] = 'application/json';
